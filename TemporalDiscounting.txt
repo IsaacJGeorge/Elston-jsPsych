@@ -1,0 +1,1019 @@
+// Initialize jsPsych
+const jsPsych = initJsPsych({
+    show_progress_bar: true,
+    on_finish: function () {
+        jsPsych.endExperiment('The experiment has ended. Thank you!');
+        //jsPsych.data.displayData();
+    }
+});
+
+// function to load the confetti library so that confetti can be used
+function loadConfettiLibrary(callback) {
+  const script = document.createElement('script');
+  script.src = 'https://cdn.jsdelivr.net/npm/canvas-confetti@1.6.0/dist/confetti.browser.min.js';
+  script.onload = callback;
+  document.head.appendChild(script);
+}
+
+var timeline = [];
+
+// Function to get or generate participant ID
+function getParticipantID() {
+  // First check if ID exists in URL parameters (e.g., from Prolific)
+  const urlParams = new URLSearchParams(window.location.search);
+  let participantID = urlParams.get('PROLIFIC_PID') || urlParams.get('participant_id') || urlParams.get('id');
+  
+  // If no ID found in URL, check if we've already generated one for this session
+  if (!participantID) {
+    participantID = sessionStorage.getItem('participant_id');
+    
+    // If no ID found in session storage, generate a random one
+    if (!participantID) {
+      // Generate random ID - timestamp + 6 random chars
+      const timestamp = new Date().getTime().toString(36);
+      const randomChars = Math.random().toString(36).substring(2, 8);
+      participantID = `P_${timestamp}_${randomChars}`;
+      
+      // Store in session storage for consistency within session
+      sessionStorage.setItem('participant_id', participantID);
+    }
+  }
+  
+  return participantID;
+}
+
+
+
+const preload = {
+  type: jsPsychPreload,
+  images: ['img/81PercentGreen_IA.png', 'img/61PercentGreen_IA.png', 'img/41PercentGreen_IA.png',
+    'img/21PercentGreen_IA.png', 'img/16SecondDelay_Fractal.png', 'img/8SecondDelay_Fractal.png', 
+    'img/4SecondDelay_Fractal.png', 'img/2SecondDelay_Fractal.png', 'coin.png']
+};
+
+timeline.push(preload);
+
+let totalPoints = 0;
+let trialNumber = 1;
+
+function getBlockPoints(blockType) {
+  // Filter trials by the specified block type
+  const trials = jsPsych.data.get().filter({phase: 'response', block_type: blockType});
+  return trials.select('points').sum();
+}
+
+// function to generate stimuli for delay training (just catch trials)
+function generateDelayTrainingStimuli() {
+  const stimuli = [];
+  
+  const delays = [2, 4, 8, 16];
+  
+  // generating catch condition 1 (delay vs delay)
+  for (let leftDelay of delays) {
+    for (let rightDelay of delays) {
+      if (leftDelay !== rightDelay) {
+        stimuli.push({
+          coinStim: `<img src="img/coin.png" />`,
+          left_stim: `<img src="img/${leftDelay}SecondDelay_Fractal.png" />`,
+          l_d: leftDelay,
+          l_a: 10,
+          right_stim: `<img src="img/${rightDelay}SecondDelay_Fractal.png" />`,
+          r_d: rightDelay,
+          r_a: 10,
+          block_type: 1,
+          catchCond: 1
+        });
+      }
+    }
+  }
+  
+return stimuli;
+}  
+
+// function to generate stimuli for IA training (just catch trials)
+function generateIATrainingStimuli() {
+  const stimuli = [];
+  
+  const immediateAmounts = [2, 4, 6, 8];
+  
+  // generating catch condition 2 (immediate amount vs immediate amount)
+  for (let leftAmount of immediateAmounts) {
+    for (let rightAmount of immediateAmounts) {
+      if (leftAmount !== rightAmount) {
+        stimuli.push({
+          coinStim: `<img src="img/coin.png" />`,
+          left_stim: `<img src="img/${leftAmount}1PercentGreen_IA.png" />`,
+          l_d: 0.5,
+          l_a: leftAmount,
+          right_stim: `<img src="img/${rightAmount}1PercentGreen_IA.png" />`,
+          r_d: 0.5,
+          r_a: rightAmount,
+          block_type: 1,
+          catchCond: 2
+        });
+      }
+    }
+  }
+  
+return stimuli;
+}
+
+
+// function to generate main task stimuli (adding the temporal discounting trials)
+function generateTestingStimuli() {
+  const stimuli = [];
+  
+  const delays = [2,4,8,16];
+  const immediateAmounts = [2,4,6,8];
+  
+  const choiceConfigurations = [0,1]; // making counterbalanced choices for the TD trials 
+  
+  for (let delay of delays) {
+      for (let amount of immediateAmounts) {
+          for (let config of choiceConfigurations) {
+            if (config === 0) { // config of 0 means delay is on left and immediate amount is on right
+              stimuli.push({
+                coinStim: `<img src="img/coin.png" />`,
+                left_stim: `<img src="img/${delay}SecondDelay_Fractal.png" />`,
+                l_a: 10,
+                l_d: delay,
+                right_stim: `<img src="img/${amount}1PercentGreen_IA.png" />`,
+                r_a: amount,
+                r_d: 0.5,
+                block_type: 2,
+                catchCond: 0
+              });
+            }
+            else { // config of 1 means immediate amount is on left and delay is on right
+              stimuli.push({
+                coinStim: `<img src="img/coin.png" />`,
+                left_stim: `<img src="img/${amount}1PercentGreen_IA.png" />`,
+                l_a: amount,
+                l_d: 0.5,
+                right_stim: `<img src="img/${delay}SecondDelay_Fractal.png" />`,
+                r_a: 10,
+                r_d: delay,
+                block_type: 2,
+                catchCond: 0
+              });
+            
+          }
+      }
+    }
+  }
+  
+  // generating catch condition 1 (delay vs delay)
+  for (let leftDelay of delays) {
+    for (let rightDelay of delays) {
+      if (leftDelay !== rightDelay) {
+        stimuli.push({
+          coinStim: `<img src="img/coin.png" />`,
+          left_stim: `<img src="img/${leftDelay}SecondDelay_Fractal.png" />`,
+          l_d: leftDelay,
+          l_a: 10,
+          right_stim: `<img src="img/${rightDelay}SecondDelay_Fractal.png" />`,
+          r_d: rightDelay,
+          r_a: 10,
+          block_type: 2,
+          catchCond: 1
+        });
+      }
+    }
+  }
+  
+  // generating catch condition 2 (immediate amount vs immediate amount)
+  for (let leftAmount of immediateAmounts) {
+    for (let rightAmount of immediateAmounts) {
+      if (leftAmount !== rightAmount) {
+        stimuli.push({
+          coinStim: `<img src="img/coin.png" />`,
+          left_stim: `<img src="img/${leftAmount}1PercentGreen_IA.png" />`,
+          l_d: 0.5,
+          l_a: leftAmount,
+          right_stim: `<img src="img/${rightAmount}1PercentGreen_IA.png" />`,
+          r_d: 0.5,
+          r_a: rightAmount,
+          block_type: 2,
+          catchCond: 2
+        });
+      }
+    }
+  }
+  
+  return stimuli;
+}
+
+// now make those delay training stimuli
+const delayTrainStimuli = generateDelayTrainingStimuli();
+
+// now for the IA training stimuli
+const rewardTrainStimuli = generateIATrainingStimuli();
+
+// create that good old main task stimuli
+const testStimuli = generateTestingStimuli();
+
+// CREATE A BLANK ITI SCREEN
+const iti_screen = {
+  type: jsPsychHtmlKeyboardResponse,
+  stimulus: function() {
+    let totalTrials = jsPsych.timelineVariable('block_type', true) === 1 ? 24:198
+    
+    if (jsPsych.timelineVariable('block_type', true) < 2) {
+      return ` <div style="position: fixed; top: 40px; left: 0; right: 0; z-index: 100; display: flex; flex-direction: column; align-items: center; background-color: rgba(255,255,255,0.8); padding: 5px; ">
+        <span style="font-size: 20px; font-weight: bold;">Total Coins: ${totalPoints}</span> 
+        <span style="font-size: 20px; font-weight: bold;">Trial Number: ${trialNumber}/${totalTrials}</span> </div>
+      <div style="position: fixed; top: 40px; left: 0; right: 0; text-align: center; background-color: rgba(255,255,255,0.8); padding: 5px; z-index: 100;">
+      </div>
+      <div style="height: 400px;"></div>
+    `;
+    }
+    else {
+      return `
+      <div style="position: fixed; top: 40px; left: 0; right: 0; z-index: 100; display: flex; flex-direction: column; align-items: center; background-color: rgba(255,255,255,0.8); padding: 5px; ">
+          <span style="font-size: 20px; font-weight: bold;">Total Coins: ${totalPoints}</span> 
+          <span id="countdown-timer" style="font-size: 20px; font-weight: bold;">Time left: </span> </div>
+      <div style="position: fixed; top: 40px; left: 0; right: 0; text-align: center; background-color: rgba(255,255,255,0.8); padding: 5px; z-index: 100;">
+      </div>
+      <div style="height: 400px;"></div>
+      </div>
+      `;
+    }
+  },
+  choices: "NO_KEYS",
+  trial_duration: 300, 
+  data: {
+    phase: 'iti'
+  },
+  on_start: function(trial) {
+    // Show counter during both training and main experiment
+    {
+      // Get the current block type - pull this from timeline variables
+      const blockType = jsPsych.timelineVariable('block_type', true);
+    }
+  }
+};
+
+// function to start a timer updater
+function startCountdownTimerUpdater() {
+  const updateTimer = () => {
+    const timeLeft = Math.max(0, Math.ceil((testing_phase_deadline - performance.now()) / 1000));
+    const timerElem = document.getElementById('countdown-timer');
+    if (timerElem) {
+      const minutes = Math.floor(timeLeft / 60);
+      const seconds = timeLeft % 60;
+      const paddedSeconds = seconds.toString().padStart(2, '0');
+      timerElem.innerText = `Time left: ${minutes}:${paddedSeconds}`;
+    }
+    if (timeLeft > 0) {
+      requestAnimationFrame(updateTimer);
+    }
+    else {
+      jsPsych.endExperiment();
+    }
+  };
+
+  requestAnimationFrame(updateTimer);
+}
+
+// function to only have the timer be updated once 
+function startTestingPhase() {
+  testing_phase_deadline = performance.now() + (10 * 60 * 1000); // 10 minutes in ms
+  startCountdownTimerUpdater();
+}
+
+// create screen to present trials
+const choiceTrial = {
+  type: jsPsychHtmlKeyboardResponse,
+  stimulus: function() {
+    var leftStim = jsPsych.timelineVariable('left_stim', true).replace('<img', '<img width="130" height="130"');
+    var rightStim = jsPsych.timelineVariable('right_stim', true).replace('<img', '<img width="130" height="130"');
+    let totalTrials = jsPsych.timelineVariable('block_type', true) === 1 ? 24:198
+    
+    if (jsPsych.timelineVariable('block_type', true) < 2) {
+      return `
+      <div style="position: fixed; top: 40px; left: 0; right: 0; z-index: 100; display: flex; flex-direction: column; align-items: center; background-color: rgba(255,255,255,0.8); padding: 5px; ">
+          <span style="font-size: 20px; font-weight: bold;">Total Coins: ${totalPoints}</span> 
+          <span style="font-size: 20px; font-weight: bold;">Trial Number: ${trialNumber}/${totalTrials}</span> </div>
+      <div style="display: flex; justify-content: space-between; width: 500px; margin: 0 auto;">
+        <div style="margin-left: 20px;">${leftStim}</div>
+        <div style="margin-right: 20px; margin-bottom: -3000px;">${rightStim}</div>
+      </div>
+      `;
+    }
+    else {
+      return `
+      <div style="position: fixed; top: 40px; left: 0; right: 0; z-index: 100; display: flex; flex-direction: column; align-items: center; background-color: rgba(255,255,255,0.8); padding: 5px; ">
+          <span style="font-size: 20px; font-weight: bold;">Total Coins: ${totalPoints}</span> 
+          <span id="countdown-timer" style="font-size: 20px; font-weight: bold;">Time left: </span> </div>
+      <div style="display: flex; justify-content: space-between; width: 500px; margin: 0 auto;">
+        <div style="margin-left: 20px;">${leftStim}</div>
+        <div style="margin-right: 20px; margin-bottom: -3000px;">${rightStim}</div>
+      </div>
+      `;
+    }
+  },
+  
+  choices: ['f', 'j'],
+    on_start: function (trial) {
+      // Record exact time when stimulus is presented
+      trial.stimulus_presentation_time = performance.now();
+      
+      const now = performance.now();
+      
+      if (jsPsych.timelineVariable('block_type', true) == 2) {
+        // Skip the trial if the deadline has passed
+        if (now > testing_phase_deadline) {
+          trial.stimulus = '';         // Blank screen
+          trial.choices = 'NO_KEYS';   // Prevent input
+          trial.trial_duration = 0;    // Immediately ends
+          return;
+        }
+      }
+      
+  
+      
+    },
+    data: function () {
+    const block = jsPsych.timelineVariable('block_type', true);
+    let task_phase = block === 1 ? 'training' : 'testing';
+    
+    return {
+      // Standard trial identification
+      participant_id: getParticipantID(),
+      phase: 'response',
+      task_phase: task_phase,
+      block_type: block,
+      
+      // Trial properties
+      r_d: jsPsych.timelineVariable('r_d', true), 
+      l_d: jsPsych.timelineVariable('l_d', true), 
+      r_a: jsPsych.timelineVariable('r_a', true), 
+      l_a: jsPsych.timelineVariable('l_a', true), 
+      catchCond: jsPsych.timelineVariable('catchCond', true),
+      
+      // Trial counters
+      trial_num: jsPsych.data.get().filter({ phase: 'response' }).count() + 1,
+      
+      // These will be filled in the on_finish callback
+      choice_dir: null,
+      chose_best: null,
+      best_side: null,
+      rt: null,
+      trial_points: null,
+      total_points: null,
+      valid_response: null,
+      chosen_side: null // Keep this for selection feedback
+    };
+  },
+  
+  on_finish: function (data) {
+    console.log("RESPONSE DATA:", data.response);
+    
+    // Get the pressed key (in jsPsych 7.2, data.response contains the key)
+    const pressedKey = data.response;
+    
+    // Determine which stimulus was chosen (left or right)
+    data.chosen_side = pressedKey === 'f' ? 'left' : 'right';
+    console.log("CHOSEN SIDE:", data.chosen_side);
+    
+    choice_dir = data.chosen_side === 'left' ? -1 : 1; // left side = choice_dir of -1
+    
+    // Add choice direction (-1 for left, 1 for right)
+    data.choice_dir = data.chosen_side === 'left' ? -1 : 1;
+    
+    // Get the chosen value (used internally)
+    const chosen_val = data.chosen_side === 'left' ? 
+      jsPsych.timelineVariable('l_a', true) : 
+      jsPsych.timelineVariable('r_a', true);
+    
+    // Get the chosen delay (used internally)
+    const chosen_delay = data.chosen_side === 'left' ? 
+      jsPsych.timelineVariable('l_d', true) : 
+      jsPsych.timelineVariable('r_d', true);  
+    
+    if (jsPsych.timelineVariable('catchCond', true) > 0) {
+      if (jsPsych.timelineVariable('l_a', true) === jsPsych.timelineVariable('r_a', true)) {
+      data.best_side = data.l_d < data.r_d ? 'left' : 'right';
+      }
+      else if (jsPsych.timelineVariable('catchCond', true) === 2) {
+      data.best_side = data.l_a > data.r_a ? 'left' : 'right';
+      }
+    }
+    
+    
+    data.chose_best = data.chosen_side === data.best_side ? 1 : 0
+    
+    
+    
+    // Set points based on chosen value
+    data.trial_points = chosen_val;
+    
+    // Track cumulative points
+    data.totalPoints;
+    
+    // const lastPoints = data.trial_points || 0;
+    // totalPoints += lastPoints;
+    // data.totalPoints = totalPoints;
+    
+    // Add response validity flag
+    data.valid_response = data.rt > 200 && data.rt < 4000; // Example thresholds
+  }
+};
+
+// FIXED SELECTION FEEDBACK SCREEN
+const selection_feedback = {
+  type: jsPsychHtmlKeyboardResponse,
+  choices: "NO_KEYS",
+
+  trial_duration: function() {
+    //   // make trial duration dependent on chosen delay
+    // if (jsPsych.timelineVariable('catchCond', true) != 2) {
+    //   // Get the chosen delay (used internally)
+    //   const last_trial = jsPsych.data.get().last(1).values()[0];
+    //   const chosen_side = last_trial.chosen_side;
+    //   const chosen_delay = chosen_side === 'left' ? 
+    //   jsPsych.timelineVariable('l_d', true) : 
+    //   jsPsych.timelineVariable('r_d', true); 
+    //   return chosen_delay * 1000;
+    const last_trial = jsPsych.data.get().last(1).values()[0];
+    const chosen_side = last_trial.chosen_side;
+    const chosen_delay = chosen_side === 'left' ? 
+    jsPsych.timelineVariable('l_d', true) : 
+    jsPsych.timelineVariable('r_d', true); 
+    return chosen_delay * 1000;
+  },
+  //   else {
+  //     return 100;
+  //   }
+  // },
+  data: {
+    phase: 'selection_feedback',
+  },
+  stimulus: function () {
+    // Get the EXACT chosen_side from the last trial
+    const last_trial = jsPsych.data.get().last(1).values()[0];
+    const chosen_side = last_trial.chosen_side; // This should be 'left' for 'f' key
+   
+   // assigning values just like the choiceTrial
+    var leftStim = jsPsych.timelineVariable('left_stim', true).replace('<img', '<img width="130" height="130"');
+    var rightStim = jsPsych.timelineVariable('right_stim', true).replace('<img', '<img width="130" height="130"');
+    let totalTrials = jsPsych.timelineVariable('block_type', true) === 1 ? 24:198
+    let html = `
+    <div style="position: fixed; top: 40px; left: 0; right: 0; z-index: 100; display: flex; flex-direction: column; align-items: center; background-color: rgba(255,255,255,0.8); padding: 5px;">
+        <span style="font-size: 20px; font-weight: bold;">Total Coins: ${totalPoints}</span>
+    `;
+
+    if (jsPsych.timelineVariable('block_type', true) < 2) {
+      html += `<span style="font-size: 20px; font-weight: bold;">Trial Number: ${trialNumber}/${totalTrials}</span>`;
+    } else {
+      html += `<span id="countdown-timer" style="font-size: 20px; font-weight: bold;">Time left: </span>`;
+    }
+
+    html += `</div>`;
+    
+    // Main feedback row
+    html += `<div style="display: flex; justify-content: space-between; width: 500px; margin: 0 auto;">`;
+    
+    if (chosen_side === 'left') {
+      html += `
+        <div style="margin-left: 20px; padding: 10px; outline: 6px solid black; border-radius: 10px; box-sizing: content-box;">
+          ${leftStim}
+        </div>
+        <div style="margin-right: 20px;">
+          ${rightStim}
+        </div>`;
+    } else {
+      html += `
+        <div style="margin-left: 20px;">
+          ${leftStim}
+        </div>
+        <div style="margin-right: 20px; padding: 10px; outline: 6px solid black; border-radius: 10px; box-sizing: content-box;">
+          ${rightStim}
+        </div>`;
+    }
+    
+    html += `</div>`;
+    return html;
+  }, 
+  on_start: function (trial) {
+      const now = performance.now();
+      
+      if (jsPsych.timelineVariable('block_type', true) == 2) {
+        // Skip the trial if the deadline has passed
+        if (now > testing_phase_deadline) {
+          trial.stimulus = '';         // Blank screen
+          trial.choices = 'NO_KEYS';   // Prevent input
+          trial.trial_duration = 0;    // Immediately ends
+          return;
+        }
+      }
+      
+  
+      
+  },
+  on_finish: function(data) {
+    const pressedKey = data.response;
+    
+    // Determine which stimulus was chosen (left or right)
+    chosen_side = pressedKey === 'f' ? 'left' : 'right';
+    
+    // Get the chosen value (used internally)
+    const chosen_val = data.chosen_side === 'left' ? 
+      jsPsych.timelineVariable('l_a', true) : 
+      jsPsych.timelineVariable('r_a', true);
+    
+    
+    data.trial_points = chosen_val;
+    
+    const lastPoints = data.trial_points || 0;
+    totalPoints += lastPoints;
+    data.totalPoints = totalPoints;
+    
+    // trialNumber++;
+  }
+};
+
+// screen to show points
+const reward_feedback = {
+  type: jsPsychHtmlKeyboardResponse,
+  choices: "NO_KEYS",
+  trial_duration: 2000,
+  data: {
+    phase: 'reward_feedback',
+  },
+  stimulus: function () {
+    const last_trial = jsPsych.data.get().last(2).values()[0]; // Get the choice trial (2 trials back)
+    const points = last_trial.trial_points; // Use the updated field name
+    const chosen_side = last_trial.chosen_side; // This should be 'left' for 'f' key
+   
+    const leftStim = jsPsych.timelineVariable('left_stim', true);
+    const rightStim = jsPsych.timelineVariable('right_stim', true);
+    //const coinStim = jsPsych.timelineVariable('coinStim', true).replace('<img', '<img width="50" height="50"');
+    // const coinHTML = coinStim.repeat(points);
+    const tempDiv = document.createElement('div');
+    tempDiv.innerHTML = jsPsych.timelineVariable('coinStim', true);
+    const coinSrc = tempDiv.querySelector('img').src;
+    let totalTrials = jsPsych.timelineVariable('block_type', true) === 1 ? 24:198
+    
+    // const pointsDisplay = `
+    //   <div style="position: fixed; top: 40px; left: 0; right: 0; z-index: 100; display: flex; flex-direction: column; text-align: center; background-color: rgba(255,255,255,0.8); padding: 5px;">
+    //     <span style="font-size: 20px; font-weight: bold;">Total Coins: ${totalPoints}</span> 
+    //     <span style="font-size: 20px; font-weight: bold;">Trial Number: ${trialNumber}/${totalTrials}</span>
+    //   </div>
+    // `;
+    
+    // return `
+    //   ${pointsDisplay}
+    //     <div style="font-size: 48px; color: ${feedbackColor}; margin-bottom: 15px;">
+    //       <p>You earned ${points} coins!</p>
+    //     <div style="display:flex; justify-content:center; gap:5px;">${coinHTML}</div>
+    //   `;
+    // Generate coin HTML with staggered animation delays
+    let coinHTML = "";
+
+  // Choose class based on points
+  let animationClass = "";
+  let extraStyles = "";
+  let sparkleEffect = '';
+  
+  if (points === 2) {
+    animationClass = "fadeIn-coin";
+    extraStyles = `
+      @keyframes fadeIn {
+        to {
+          opacity: 1;
+        }
+      }
+      .fadeIn-coin {
+        opacity: 0;
+        animation: fadeIn 1s ease forwards;
+      }
+    `;
+  } else if (points === 4) {
+    animationClass = "bounce-coin";
+    extraStyles = `
+      @keyframes bounce {
+        0% { transform: translateY(0); }
+        50% { transform: translateY(-15px); }
+        100% { transform: translateY(0); }
+      }
+      .bounce-coin {
+        animation: bounce 1.2s ease;
+      }
+    `;
+  } else if (points === 6) {
+    animationClass = "spin-coin";
+    extraStyles = `
+      @keyframes spin {
+        from { transform: rotate(0deg); opacity: 0; }
+        to { transform: rotate(360deg); opacity: 1; }
+      }
+      .spin-coin {
+        opacity: 0;
+        animation: spin 1.1s ease-out forwards;
+      }
+    `;
+  } else if (points === 8) {
+    animationClass = "fadeUp-bounce-glow-coin";
+    extraStyles = `
+      @keyframes fadeUpBounceGlow {
+        0% {
+          opacity: 0;
+          transform: translateY(30px) scale(0.8);
+          box-shadow: 0 0 0px #228B22;
+        }
+        50% {
+          opacity: 1;
+          transform: translateY(-10px) scale(1.1);
+          box-shadow: 0 0 10px #228B22;
+        }
+        100% {
+          opacity: 1;
+          transform: translateY(0) scale(1);
+          box-shadow: 0 0 5px #228B22;
+        }
+      }
+  
+      .fadeUp-bounce-glow-coin {
+        opacity: 0;
+        transform: translateY(30px);
+        animation: fadeUpBounceGlow 1.2s ease-out forwards;
+        border-radius: 50%;
+      }
+    `;
+} else if (points === 10) {
+  animationClass = "fadeUp-glow-coin";
+  extraStyles = `
+    @keyframes fadeUpGlow {
+      0% {
+        opacity: 0;
+        transform: translateY(20px) scale(0.9);
+        box-shadow: 0 0 0px #00CED1;
+      }
+      50% {
+        opacity: 1;
+        transform: translateY(10px) scale(1.05);
+        box-shadow: 0 0 15px #00CED1;
+      }
+      100% {
+        opacity: 1;
+        transform: translateY(0) scale(1);
+        box-shadow: 0 0 10px #00CED1;
+      }
+    }
+
+    .fadeUp-glow-coin {
+      opacity: 0;
+      transform: translateY(20px);
+      animation: fadeUpGlow 0.8s ease-out forwards;
+      border-radius: 50%;
+    }
+  `;
+  
+
+  // Add confetti burst using canvas-confetti
+  setTimeout(() => {
+    confetti({
+      particleCount: 80,
+      spread: 100,
+      origin: { y: 0.6 },
+      colors: ['#FFD700', '#FFFACD', '#FFEC8B'],
+      ticks: 90,         // shorter lifetime
+      gravity: 1.1       // fall faster
+    });
+  }, 300);
+  }
+  
+  // Generate the coin HTML with delay
+  for (let i = 0; i < points; i++) {
+    coinHTML += `<img src="${coinSrc}" class="${animationClass}" style="animation-delay: ${i * 0.1}s;" width="50" height="50">`;
+  }
+
+  return `
+    <style>
+      .coin-container {
+        display: flex;
+        justify-content: center;
+        gap: 8px;
+        flex-wrap: wrap;
+        margin-top: 10px;
+      }
+      ${extraStyles}
+    </style>
+    <div style="font-size: 48px; text-align:center;">
+      <p>You earned ${points} coins!</p>
+      <div class="coin-container">${coinHTML}</div>
+    </div>
+      ${sparkleEffect || ''}
+  `;
+  },
+  on_finish: function() {
+    trialNumber++;
+  }
+};
+
+// resets the trial number
+const resetTrialNumber = {
+  type: jsPsychCallFunction,
+  func: function() {
+    trialNumber = 1;
+  }
+};
+
+// Combined welcome with embedded consent form
+const welcome_and_consent = {
+    type: jsPsychHtmlButtonResponse,
+    stimulus: `
+    <div style="text-align: center; margin-bottom: 20px;">
+      <img src="img/ut_neuro_logo.png" alt="UT Austin Neuroscience Department Logo" style="max-width: 250px; height: auto;">
+    </div>
+   
+    <h1>Temporal Discounting and Precision </h1>
+    <script src="jspsych.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/canvas-confetti@1.6.0/dist/confetti.browser.min.js"></script>
+    <div style="border: 1px solid #ccc; background-color: #f9f9f9; padding: 15px; margin: 20px 0; border-radius: 5px;">
+      <h3 style="text-align: center;">Consent to Participate in Research</h3>
+     
+      <p style="text-align: center;">This study involves:</p>
+      <ol style="text-align: left; padding-left: 40px;">
+        <li><strong>Demographic Information:</strong> Brief questions about your age, gender, and education (less than 1 minute)</li>
+        <li><strong>Temporal Discounting phase:</strong> A temporal discounting task involving choosing between smaller rewards with short delays and larger rewards with long delays   (approx. 30 minutes)</li>
+        <li><strong>Questionnaires:</strong> Surveys about various aspects of experience and behavior (approx. 10 minutes)</li>
+      </ol>
+      <p style="text-align: center;">Total participation time: approximately 40-45 minutes</p>
+     
+      <div style="border: 1px solid #ddd; padding: 10px; margin: 15px 0; background-color: white;">
+        <p><strong>Anonymity and Data Usage:</strong> Your participation is completely anonymous and no personally identifying information is collected.</p>
+       
+        <p><strong>Voluntary Participation:</strong> Your participation is voluntary. You may withdraw at any time without penalty by closing this browser tab.</p>
+       
+        <p><strong>IRB Approval:</strong> This study has been reviewed and approved by The University of Texas at Austin Institutional Review Board.</p>
+      </div>
+    </div>
+   
+    <p>By clicking "I Consent", you confirm that you have read the above information and voluntarily agree to participate.</p>
+    <script src="https://cdn.jsdelivr.net/npm/canvas-confetti@1.6.0/dist/confetti.browser.min.js"></script>
+    <script src="js/my_experiment.js"></script>
+  `,
+    choices: ["I Consent", "I Do Not Consent"],
+    data: {
+        phase: 'consent',
+        task_phase: 'consent'
+    },
+    on_finish: function (data) {
+        // If participant does not consent, end the experiment
+        if (data.response == 1) {
+            jsPsych.endExperiment('Thank you for your interest. The experiment has been terminated as consent was not provided.');
+        }
+    }
+};
+
+// COLLECT DEMOGRAPHICS WITH A DROPDOWN MENU
+const demographics_combined = {
+    type: jsPsychSurveyHtmlForm,
+    preamble: `
+    <h2>Demographic Information</h2>
+    <p>Please answer the following questions about yourself.</p>
+  `,
+    html: `
+    <div class="survey-item">
+      <label for="age">What is your age?</label>
+      <select id="age" name="age" required>
+        <option value="" selected disabled>Select an option</option>
+        <option value="18-24">18-24</option>
+        <option value="25-34">25-34</option>
+        <option value="35-44">35-44</option>
+        <option value="45-54">45-54</option>
+        <option value="55-64">55-64</option>
+        <option value="65-74">65-74</option>
+        <option value="75 or older">75 or older</option>
+        <option value="Prefer not to answer">Prefer not to answer</option>
+      </select>
+    </div>
+   
+    <div class="survey-item">
+      <label for="gender">What is your gender?</label>
+      <select id="gender" name="gender" required>
+        <option value="" selected disabled>Select an option</option>
+        <option value="Male">Male</option>
+        <option value="Female">Female</option>
+        <option value="Non-binary">Non-binary</option>
+        <option value="Other">Other</option>
+        <option value="Prefer not to answer">Prefer not to answer</option>
+      </select>
+    </div>
+   
+    <div class="survey-item">
+      <label for="education">What is your highest level of education?</label>
+      <select id="education" name="education" required>
+        <option value="" selected disabled>Select an option</option>
+        <option value="Less than high school">Less than high school</option>
+        <option value="High school graduate">High school graduate</option>
+        <option value="Some college">Some college</option>
+        <option value="Bachelor's degree">Bachelor's degree</option>
+        <option value="Master's degree">Master's degree</option>
+        <option value="Doctoral degree">Doctoral degree</option>
+        <option value="Prefer not to answer">Prefer not to answer</option>
+      </select>
+    </div>
+  `,
+    button_label: 'Continue',
+    data: {
+        phase: 'demographics',
+        task_phase: 'demographics'
+    },
+    // Add some basic styling to make the dropdowns look nicer
+    css: `
+    .survey-item {
+      margin-bottom: 20px;
+    }
+   
+    label {
+      display: block;
+      margin-bottom: 8px;
+      font-weight: bold;
+    }
+   
+    select {
+      width: 100%;
+      padding: 8px;
+      border: 1px solid #ccc;
+      border-radius: 4px;
+      font-size: 16px;
+    }
+  `
+};
+
+
+// define the instructions
+const combined_instructions = {
+    type: jsPsychHtmlKeyboardResponse,
+    stimulus: `
+    <h1>Task Instructions</h1>
+   
+    <div style="border: 1px solid #ccc; background-color: #f9f9f9; padding: 15px; margin: 20px 0; border-radius: 5px;">
+      <p>In this task, you will try to maximize your points by choosing between short delays with small rewards and long delays with larger rewards. </p>
+      <p>In the training phase, you will understand the values associated with the stimuli, and in the testing phase, you will compare across the two types of stimuli.</p>
+     
+      <div style="border: 1px solid #ddd; padding: 5px; margin: 15px 0; background-color: white;">
+        <p style="text-align: center;"><strong>Trial Sequence:</strong></p>
+        <ol style="text-align: left; padding-left: 40px;">
+          <li>You are shown two options of stimuli that either correspond to reward or delay</li>
+          <li>Choose whichever stimuli you value more</li>
+          <li>Make your choice using the keyboard:</li>
+        </ol>
+       
+        <div style="text-align: center; margin: 20px;">
+          <span style="display: inline-block; width: 150px; text-align: center; border: 1px solid #ddd; padding: 10px; border-radius: 5px; background-color: #f5f5f5;">
+            <strong>F key</strong><br>for LEFT option
+          </span>
+          <span style="display: inline-block; width: 30px;"></span>
+          <span style="display: inline-block; width: 150px; text-align: center; border: 1px solid #ddd; padding: 10px; border-radius: 5px; background-color: #f5f5f5;">
+            <strong>J key</strong><br>for RIGHT option
+          </span>
+        </div>
+      </div>
+
+      <p>You'll begin with training trials to familiarize yourself with the task.</p>
+      <p>In the training phase, you will learn the values associated with each stimuli.</p>
+    </div>
+   
+    <p>Press any key to continue.</p>
+  `,
+    post_trial_gap: 500
+};
+
+// Add components to the timeline
+timeline.push(welcome_and_consent);
+timeline.push(demographics_combined);
+timeline.push(combined_instructions);
+
+// delay training info screen
+const delay_training_info_screen = {
+  type: jsPsychHtmlKeyboardResponse,
+  stimulus: `
+    <h2>Delay Training Phase</h2>
+    
+    <p>You will now complete a set of training trials focusing on learning delay stimuli.</p>
+    
+    <p>Your task is to learn which delay stimuli correspond to which delays.</p>
+    
+    <p>Remember: Press <strong>F</strong> to select the left option and <strong>J</strong> to select the right option.</p>
+    
+    <p>Press any key to begin the delay training.</p>
+  `
+}
+
+// reward training info screen
+const reward_training_info_screen = {
+  type: jsPsychHtmlKeyboardResponse,
+  stimulus: `
+    <h2>Reward Training Phase</h2>
+    
+    <p>You will now complete a set of training trials focusing on learning reward stimuli.</p>
+    
+    <p>Your task is to learn which reward stimuli correspond to which rewards.</p>
+    
+    <p>Remember: Press <strong>F</strong> to select the left option and <strong>J</strong> to select the right option.</p>
+    
+    <p>Press any key to begin the reward training.</p>
+  `
+}
+
+// main experiment start screen 
+const MainExperiment_StartScreen = {
+    type: jsPsychHtmlKeyboardResponse,
+    stimulus: `
+    <h2>Main Experiment Phase</h2>
+   
+    <p>Great job! You have completed the training phases.</p>
+   
+    <p>Now you will begin the main experiment. In this phase, in addition to comparing delays versus delays and rewards versus rewards, you will compare
+    smaller sooner rewards vs later larger rewards. Your goal is to maximize your points, but you might have to wait, or not— your choice. You will keep your points from the training phase.</p>
+   
+    <p>Try to use what you learned in the training phase to get as many points as you can.</p>
+   
+    <p>Press any key to begin the main experiment.</p>
+  `
+};
+
+// function to add the start testing phase to the timeline
+var start_testing_phase = {
+  type: jsPsychCallFunction,
+  func: startTestingPhase
+};
+
+const Debrief_at_End = {
+    type: jsPsychHtmlKeyboardResponse,
+    stimulus: function () {
+        return `
+        <h2>Experiment Complete</h2>
+        
+        <p>Thank you for participating in our temporal discounting study!</p>
+        
+        <p>In this experiment, you were asked to make value based choice decisions that had corresponding delays.
+        This allows us to map a temporal discounting function to determine whether you generally preferred the option of a shorter delay 
+        and smaller reward compared to a longer delay and larger reward.</p>
+        
+        <p>This study helps us understand how people discount rewards with respect to time.</p>
+        
+        <p><strong>Press any key to close the experiment.</strong></p>`;
+    },
+    post_trial_gap: 1000
+}; // end of debrief screen
+
+
+
+const delay_train_procedure = {
+    timeline: [iti_screen, choiceTrial, selection_feedback, reward_feedback],
+    timeline_variables: delayTrainStimuli,
+    randomize_order: true,
+    repetitions: 2
+};
+
+const reward_train_procedure = {
+    timeline: [iti_screen, choiceTrial, selection_feedback, reward_feedback],
+    timeline_variables: rewardTrainStimuli,
+    randomize_order: true,
+    repetitions: 2
+};
+
+const MainBlock = {
+    timeline: [iti_screen, choiceTrial, selection_feedback, reward_feedback],
+    timeline_variables: testStimuli,
+    on_timeline_start: function() {
+    testing_phase_deadline = performance.now() + (60 * 1000 * 20); // 20 minutes
+    },
+    randomize_order: true,
+    repetitions: 3
+};
+
+
+
+// randomize training order 
+if (Math.random() > .5) {
+    timeline.push(delay_training_info_screen);
+    timeline.push(delay_train_procedure);
+    
+    timeline.push(resetTrialNumber);
+    timeline.push(reward_training_info_screen);
+    timeline.push(reward_train_procedure);
+} else {
+    timeline.push(reward_training_info_screen);
+    timeline.push(reward_train_procedure);
+    
+    timeline.push(resetTrialNumber);
+    timeline.push(delay_training_info_screen);
+    timeline.push(delay_train_procedure);
+}
+
+timeline.push(resetTrialNumber);
+timeline.push(MainExperiment_StartScreen);
+timeline.push(start_testing_phase);
+timeline.push(MainBlock);
+timeline.push(Debrief_at_End);
+
+// start the experiment
+loadConfettiLibrary(() => {
+  jsPsych.run(timeline);
+});
