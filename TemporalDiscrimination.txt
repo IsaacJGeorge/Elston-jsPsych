@@ -1,0 +1,633 @@
+// Initialize jsPsych
+const jsPsych = initJsPsych({
+    show_progress_bar: true,
+    on_finish: function () {
+        jsPsych.endExperiment('The experiment has ended. Thank you!');
+        //jsPsych.data.displayData();
+    }
+});
+
+var timeline = [];
+
+// Function to get or generate participant ID
+function getParticipantID() {
+  // First check if ID exists in URL parameters (e.g., from Prolific)
+  const urlParams = new URLSearchParams(window.location.search);
+  let participantID = urlParams.get('PROLIFIC_PID') || urlParams.get('participant_id') || urlParams.get('id');
+  
+  // If no ID found in URL, check if we've already generated one for this session
+  if (!participantID) {
+    participantID = sessionStorage.getItem('participant_id');
+    
+    // If no ID found in session storage, generate a random one
+    if (!participantID) {
+      // Generate random ID - timestamp + 6 random chars
+      const timestamp = new Date().getTime().toString(36);
+      const randomChars = Math.random().toString(36).substring(2, 8);
+      participantID = `P_${timestamp}_${randomChars}`;
+      
+      // Store in session storage for consistency within session
+      sessionStorage.setItem('participant_id', participantID);
+    }
+  }
+  
+  return participantID;
+}
+
+
+// Helper function to display the total points at the top of every screen
+function createPointsDisplay() {
+  const totalPoints = jsPsych.data.get().filter({phase: 'response'}).select('points').sum() || 0;
+  return `
+    <div style="position: fixed; top: 45px; left: 0; right: 0; text-align: center; background-color: rgba(255,255,255,0.8); padding: 5px; z-index: 100;">
+      <span style="font-size: 20px; font-weight: bold;">Total Points: ${totalPoints}</span>
+    </div>
+  `;
+}
+
+// Create HTML stimuli instead of using PNG files
+const CLOCK_START_STIMULUS = `
+  <div style="width: 150px; height: 150px; border-radius: 50%; border: 10px solid #0000FF; margin: 0 auto;"></div>
+`;
+
+const CLOCK_STOP_STIMULUS = `
+  <div style="width: 150px; height: 150px; border-radius: 50%; background-color: #0000FF; margin: 0 auto;"></div>
+`;
+
+// Preload CSS for the experiment
+const preload = {
+  type: jsPsychPreload,
+  images: [] // No images to preload now that we're using HTML stimuli
+};
+
+timeline.push(preload);
+
+function getBlockPoints(blockType) {
+  // Filter trials by the specified block type
+  const trials = jsPsych.data.get().filter({phase: 'response', block_type: blockType});
+  return trials.select('points').sum();
+}
+
+// Helper function to generate stimuli for both training and testing
+function generateStimuli(blockType, delays) {
+  const stimuli = [];
+  
+  const shortDelayStim = `<div style="font-size: 36px; font-weight: bold;">Short</div>`;
+  const longDelayStim = `<div style="font-size: 36px; font-weight: bold;">Long</div>`;
+         
+  const choiceConfigurations = [0, 1];
+  
+  for (let delayLength of delays) {
+    let delayCategory = delayLength < 5.5 ? 'short' : 'long';
+
+    for (let config of choiceConfigurations) {
+      let l_choice, r_choice, l_cat, r_cat, l_val, r_val;
+
+      if (config === 0) {
+        l_choice = shortDelayStim;
+        r_choice = longDelayStim;
+        l_cat = 0; // 0 = short
+        r_cat = 1; // 1 = long
+        // Set values based on delay category
+        l_val = delayCategory === 'short' ? 1 : 0; // 1 point if correct
+        r_val = delayCategory === 'long' ? 1 : 0;
+      } else {
+        l_choice = longDelayStim;
+        r_choice = shortDelayStim;
+        l_cat = 1; // long
+        r_cat = 0; // short
+        // Set values based on delay category
+        l_val = delayCategory === 'long' ? 1 : 0;
+        r_val = delayCategory === 'short' ? 1 : 0;
+      }
+     
+      stimuli.push({
+        clock_start_stim: CLOCK_START_STIMULUS,
+        clock_stop_stim: CLOCK_STOP_STIMULUS,
+        l_choice: l_choice,
+        r_choice: r_choice,
+        l_cat: l_cat,
+        r_cat: r_cat,
+        l_val: l_val,
+        r_val: r_val,
+        block_type: blockType,
+        delay_len: delayLength, // how long was the delay exactly?
+        delay_class: delayCategory, // was this short or long?
+        config: config // Add configuration for data tracking
+      });
+    }
+  }
+  
+  return stimuli;
+}
+
+// CREATE TRAINING STIMULI
+const train_stimuli = generateStimuli(2, [2, 4, 8, 10]);
+
+// CREATE TEST STIMULI 
+const main_task_stimuli = generateStimuli(3, [2, 3, 4, 5, 6, 7, 8, 9]);
+
+let totalPoints = 0;
+// CREATE A BLANK ITI SCREEN
+const iti_screen = {
+  type: jsPsychHtmlKeyboardResponse,
+  stimulus: function() {
+    // Return just the points display with a blank screen
+    const totalPoints = jsPsych.data.get().filter({phase: 'response'}).select('trial_points').sum() || 0;
+    
+    return `
+      <div style="position: fixed; top: 40px; left: 0; right: 0; text-align: center; background-color: rgba(255,255,255,0.8); padding: 5px; z-index: 100;">
+      </div>
+      <div style="height: 400px;"></div>
+    `;
+  },
+  choices: "NO_KEYS",
+  trial_duration: 300, 
+  data: {
+    phase: 'iti'
+  },
+  on_start: function(trial) {
+    // Show counter during both training and main experiment
+    {
+      // Get the current block type - pull this from timeline variables
+      const blockType = jsPsych.timelineVariable('block_type', true);
+
+      totalPoints = getBlockPoints(blockType);
+    }
+  }
+};
+
+// CREATE SCREEN TO PRESENT CLOCK START AND RUN DELAY
+const clock_start_screen = {
+  type: jsPsychHtmlKeyboardResponse,
+  stimulus: function() {
+    const leftStim = jsPsych.timelineVariable('l_choice', true);
+    const rightStim = jsPsych.timelineVariable('r_choice', true);
+    
+    return `
+      <div style="margin-bottom: 40px;">
+        ${jsPsych.timelineVariable('clock_start_stim', true)}
+      </div>
+      <div style="display: flex; justify-content: space-between; width: 500px; margin: 0 auto;">
+        <div style="margin-left: 20px; color: rgba(0,0,0,0);">${leftStim}</div>
+        <div style="margin-right: 20px; color: rgba(0,0,0,0);">${rightStim}</div>
+      </div>
+    `;
+  },
+  choices: "NO_KEYS",
+  trial_duration: function() {
+    return jsPsych.timelineVariable('delay_len', true) * 1000; // Convert to milliseconds
+  },
+  data: {
+    phase: 'clock_start',
+    delay_length: jsPsych.timelineVariable('delay_len'),
+    delay_class: jsPsych.timelineVariable('delay_class')
+  }
+};
+
+
+
+// CREATE SCREEN TO PRESENT SHORT/LONG CATEGORIZATION
+const choice_screen = {
+  type: jsPsychHtmlKeyboardResponse,
+  stimulus: function () {
+    const totalPoints = jsPsych.data.get().filter({phase: 'response'}).select('trial_points').sum() || 0;
+    const leftStim = jsPsych.timelineVariable('l_choice', true);
+    const rightStim = jsPsych.timelineVariable('r_choice', true);
+    const stopStim = jsPsych.timelineVariable('clock_stop_stim', true);
+   
+    return `
+      <div style="position: fixed; top: 40px; left: 0; right: 0; text-align: center; background-color: rgba(255,255,255,0.8); padding: 5px; z-index: 100;">
+        <span style="font-size: 20px; font-weight: bold;">Total Points: ${totalPoints}</span>
+      </div>
+      <div style="margin-bottom: 40px;">
+        ${stopStim}
+      </div>
+      <div style="display: flex; justify-content: space-between; width: 500px; margin: 0 auto;">
+        <div style="margin-left: 20px;">${leftStim}</div>
+        <div style="margin-right: 20px;">${rightStim}</div>
+      </div>
+    `;
+  },
+  choices: ['f', 'j'],
+  on_start: function (trial) {
+    trial.stimulus_presentation_time = performance.now();
+  },
+  data: function () {
+    const block = jsPsych.timelineVariable('block_type', true);
+    let task_phase = block === 2 ? 'training' : 'testing';
+    
+    return {
+      // Standard trial identification
+      participant_id: getParticipantID(),
+      phase: 'response',
+      task_phase: task_phase,
+      block_type: block,
+      
+      // Trial properties
+      delay_len: jsPsych.timelineVariable('delay_len', true),
+      delay_class: jsPsych.timelineVariable('delay_class', true) === 'short' ? 0 : 1, // Convert to numeric: 0=short, 1=long
+      config: jsPsych.timelineVariable('config', true),
+      
+      // Trial counters
+      trial_num: jsPsych.data.get().filter({ phase: 'response' }).count() + 1,
+      
+      // These will be filled in the on_finish callback
+      choice_dir: null,
+      correct: null,
+      trial_points: null,
+      total_points: null,
+      valid_response: null,
+      chosen_side: null // Keep this for selection feedback
+    };
+  },
+  on_finish: function (data) {
+    // In jsPsych 7.2, response data is stored in data.response
+    console.log("RESPONSE DATA:", data.response);
+    
+    // Get the pressed key (in jsPsych 7.2, data.response contains the key)
+    const pressedKey = data.response;
+    
+    // Determine which stimulus was chosen (left or right)
+    data.chosen_side = pressedKey === 'f' ? 'left' : 'right';
+    console.log("CHOSEN SIDE:", data.chosen_side);
+    
+    choice_dir = data.chosen_side === 'left' ? -1 : 1;
+    
+    // Add choice direction (-1 for left, 1 for right)
+    data.choice_dir = data.chosen_side === 'left' ? -1 : 1;
+    
+    // Get the chosen value (used internally)
+    const chosen_val = data.chosen_side === 'left' ? 
+      jsPsych.timelineVariable('l_val', true) : 
+      jsPsych.timelineVariable('r_val', true);
+   
+    // Calculate if the response was correct (1 = correct, 0 = incorrect)
+    data.correct = chosen_val === 1 ? 1 : 0;
+    
+    // Set points based on chosen value
+    data.trial_points = chosen_val;
+   
+   // get data for chosen delay
+   if (jsPsych.timelineVariable('config', true) == 0) {
+     if (choice_dir == 1)
+     {
+       data.chosen_delay = 'long';
+     }
+     else
+     {
+       data.chosen_delay = 'short';
+     }
+   }
+   else if (jsPsych.timelineVariable('config', true) == 1) {
+     if (choice_dir == 1) {
+       data.chosen_delay = 'short';
+     }
+     else {
+       data.chosen_delay = 'long';
+     }
+   }
+   
+    // Track cumulative points
+    const previousTrials = jsPsych.data.get().filter({phase: 'response'});
+    const previousPoints = previousTrials.select('trial_points').sum();
+    data.total_points = previousPoints + data.trial_points;
+
+    // Add response validity flag
+    data.valid_response = data.rt > 200 && data.rt < 4000; // Example thresholds
+  }
+};
+
+
+
+
+// FIXED SELECTION FEEDBACK SCREEN
+const selection_feedback = {
+  type: jsPsychHtmlKeyboardResponse,
+  choices: "NO_KEYS",
+  trial_duration: 300,
+  data: {
+    phase: 'selection_feedback',
+  },
+  stimulus: function () {
+    // Get the EXACT chosen_side from the last trial
+    const last_trial = jsPsych.data.get().last(1).values()[0];
+    const chosen_side = last_trial.chosen_side; // This should be 'left' for 'f' key
+   
+    const leftStim = jsPsych.timelineVariable('l_choice', true);
+    const rightStim = jsPsych.timelineVariable('r_choice', true);
+    const stopStim = jsPsych.timelineVariable('clock_stop_stim', true);
+    
+    // Get total points for the counter
+    const totalPoints = jsPsych.data.get().filter({phase: 'response'}).select('trial_points').sum() || 0;
+    
+    let html = `
+      <div style="position: fixed; top: 40px; left: 0; right: 0; text-align: center; background-color: rgba(255,255,255,0.8); padding: 5px; z-index: 100;">
+        <span style="font-size: 20px; font-weight: bold;">Total Points: ${totalPoints}</span>
+      </div>
+      <div style="margin-bottom: 40px;">
+        ${stopStim}
+      </div>
+      <div style="display: flex; justify-content: space-between; width: 500px; margin: 0 auto;">
+    `;
+    
+    console.log("Selected side:", chosen_side, "Response key:", last_trial.response);
+    
+    // Add the outline to the chosen side
+    if (chosen_side === 'left') {
+      html += `<div style="margin-left: 20px; padding: 10px; outline: 6px solid black; border-radius: 10px; box-sizing: content-box;">
+        ${leftStim}
+      </div>
+      <div style="margin-right: 20px;">
+        ${rightStim}
+      </div>`;
+    } else {
+      html += `<div style="margin-left: 20px;">
+        ${leftStim}
+      </div>
+      <div style="margin-right: 20px; padding: 10px; outline: 6px solid black; border-radius: 10px; box-sizing: content-box;">
+        ${rightStim}
+      </div>`;
+    }
+    
+    html += `</div>`;
+    
+    return html;
+  }    
+};
+
+// CREATE SCREEN TO SHOW THE POINTS AND CORRECT/INCORRECT
+const reward_feedback = {
+  type: jsPsychHtmlKeyboardResponse,
+  choices: "NO_KEYS",
+  trial_duration: 700,
+  data: {
+    phase: 'reward_feedback',
+  },
+  stimulus: function () {
+    const last_trial = jsPsych.data.get().last(2).values()[0]; // Get the choice trial (2 trials back)
+    const points = last_trial.trial_points; // Use the updated field name
+    const stopStim = jsPsych.timelineVariable('clock_stop_stim', true);
+    
+    const feedbackColor = points === 1 ? '#008800' : '#880000'; // Green for correct, red for incorrect
+    const feedbackText = points === 1 ? 'Correct!' : 'Incorrect';
+    
+    // To maintain consistent layout, include invisible placeholders for the choice options
+    const leftStim = jsPsych.timelineVariable('l_choice', true);
+    const rightStim = jsPsych.timelineVariable('r_choice', true);
+    
+    // Use the updated points display function with new field name
+    const totalPoints = jsPsych.data.get().filter({phase: 'response'}).select('trial_points').sum() || 0;
+    const pointsDisplay = `
+      <div style="position: fixed; top: 40px; left: 0; right: 0; text-align: center; background-color: rgba(255,255,255,0.8); padding: 5px; z-index: 100;">
+        <span style="font-size: 20px; font-weight: bold;">Total Points: ${totalPoints}</span>
+      </div>
+    `;
+    
+    return `
+      ${pointsDisplay}
+      <div style="margin-top: 120px; text-align: center;">
+        <div style="font-size: 48px; font-weight: bold; color: ${feedbackColor}; margin-bottom: 20px;">
+          ${feedbackText}
+        </div>
+        <div style="font-size: 36px; color: #8B6914; margin-bottom: 15px;">
+          Points: +${points}
+        </div>
+      </div>
+      <div style="display: flex; justify-content: space-between; width: 500px; margin: 0 auto;">
+        <div style="margin-left: 20px; color: rgba(0,0,0,0);">${leftStim}</div>
+        <div style="margin-right: 20px; color: rgba(0,0,0,0);">${rightStim}</div>
+      </div>
+    `;
+  }
+};
+
+
+
+
+// Combined welcome with embedded consent form
+const welcome_and_consent = {
+    type: jsPsychHtmlButtonResponse,
+    stimulus: `
+    <div style="text-align: center; margin-bottom: 20px;">
+      <img src="img/ut_neuro_logo.png" alt="UT Austin Neuroscience Department Logo" style="max-width: 250px; height: auto;">
+    </div>
+   
+    <h1>Temporal Precision and Discounting</h1>
+    <div style="border: 1px solid #ccc; background-color: #f9f9f9; padding: 15px; margin: 20px 0; border-radius: 5px;">
+      <h3 style="text-align: center;">Consent to Participate in Research</h3>
+     
+      <p style="text-align: center;">This study involves:</p>
+      <ol style="text-align: left; padding-left: 40px;">
+        <li><strong>Demographic Information:</strong> Brief questions about your age, gender, and education (less than 1 minute)</li>
+        <li><strong>Temporal Discrimination phase:</strong> A temporal discrimination task involving a variable delay and your classification of whether the delay was long or short (approx. 20 minutes)</li>
+        <li><strong>Questionnaires:</strong> Surveys about various aspects of experience and behavior (approx. 10 minutes)</li>
+      </ol>
+      <p style="text-align: center;">Total participation time: approximately 30-35 minutes</p>
+     
+      <div style="border: 1px solid #ddd; padding: 10px; margin: 15px 0; background-color: white;">
+        <p><strong>Anonymity and Data Usage:</strong> Your participation is completely anonymous and no personally identifying information is collected.</p>
+       
+        <p><strong>Voluntary Participation:</strong> Your participation is voluntary. You may withdraw at any time without penalty by closing this browser tab.</p>
+       
+        <p><strong>IRB Approval:</strong> This study has been reviewed and approved by The University of Texas at Austin Institutional Review Board.</p>
+      </div>
+    </div>
+   
+    <p>By clicking "I Consent", you confirm that you have read the above information and voluntarily agree to participate.</p>
+  `,
+    choices: ["I Consent", "I Do Not Consent"],
+    data: {
+        phase: 'consent',
+        task_phase: 'consent'
+    },
+    on_finish: function (data) {
+        // If participant does not consent, end the experiment
+        if (data.response == 1) {
+            jsPsych.endExperiment('Thank you for your interest. The experiment has been terminated as consent was not provided.');
+        }
+    }
+};
+
+// COLLECT DEMOGRAPHICS WITH A DROPDOWN MENU
+const demographics_combined = {
+    type: jsPsychSurveyHtmlForm,
+    preamble: `
+    <h2>Demographic Information</h2>
+    <p>Please answer the following questions about yourself.</p>
+  `,
+    html: `
+    <div class="survey-item">
+      <label for="age">What is your age?</label>
+      <select id="age" name="age" required>
+        <option value="" selected disabled>Select an option</option>
+        <option value="18-24">18-24</option>
+        <option value="25-34">25-34</option>
+        <option value="35-44">35-44</option>
+        <option value="45-54">45-54</option>
+        <option value="55-64">55-64</option>
+        <option value="65-74">65-74</option>
+        <option value="75 or older">75 or older</option>
+        <option value="Prefer not to answer">Prefer not to answer</option>
+      </select>
+    </div>
+   
+    <div class="survey-item">
+      <label for="gender">What is your gender?</label>
+      <select id="gender" name="gender" required>
+        <option value="" selected disabled>Select an option</option>
+        <option value="Male">Male</option>
+        <option value="Female">Female</option>
+        <option value="Non-binary">Non-binary</option>
+        <option value="Other">Other</option>
+        <option value="Prefer not to answer">Prefer not to answer</option>
+      </select>
+    </div>
+   
+    <div class="survey-item">
+      <label for="education">What is your highest level of education?</label>
+      <select id="education" name="education" required>
+        <option value="" selected disabled>Select an option</option>
+        <option value="Less than high school">Less than high school</option>
+        <option value="High school graduate">High school graduate</option>
+        <option value="Some college">Some college</option>
+        <option value="Bachelor's degree">Bachelor's degree</option>
+        <option value="Master's degree">Master's degree</option>
+        <option value="Doctoral degree">Doctoral degree</option>
+        <option value="Prefer not to answer">Prefer not to answer</option>
+      </select>
+    </div>
+  `,
+    button_label: 'Continue',
+    data: {
+        phase: 'demographics',
+        task_phase: 'demographics'
+    },
+    // Add some basic styling to make the dropdowns look nicer
+    css: `
+    .survey-item {
+      margin-bottom: 20px;
+    }
+   
+    label {
+      display: block;
+      margin-bottom: 8px;
+      font-weight: bold;
+    }
+   
+    select {
+      width: 100%;
+      padding: 8px;
+      border: 1px solid #ccc;
+      border-radius: 4px;
+      font-size: 16px;
+    }
+  `
+};
+
+// define the instructions
+const combined_instructions = {
+    type: jsPsychHtmlKeyboardResponse,
+    stimulus: `
+    <h1>Task Instructions</h1>
+   
+    <div style="border: 1px solid #ccc; background-color: #f9f9f9; padding: 15px; margin: 20px 0; border-radius: 5px;">
+      <p>In this task, you will try to correctly identify whether a delay was long or short to earn points. </p>
+      <p>Each delay is initiated with an open blue circle and stopped with a filled blue circle.</p>
+     
+      <div style="border: 1px solid #ddd; padding: 5px; margin: 15px 0; background-color: white;">
+        <p style="text-align: center;"><strong>Trial Sequence:</strong></p>
+        <ol style="text-align: left; padding-left: 40px;">
+          <li>A blue open circle is shown as a cue to start your internal clock</li>
+          <li>A blue filled circle is shown as a cue to stop your internal clock </li>
+          <li>Try to classify whether the delay between the open and closed circles was long or short</li>
+          <li>Make your choice using the keyboard:</li>
+        </ol>
+       
+        <div style="text-align: center; margin: 20px;">
+          <span style="display: inline-block; width: 150px; text-align: center; border: 1px solid #ddd; padding: 10px; border-radius: 5px; background-color: #f5f5f5;">
+            <strong>F key</strong><br>for LEFT option
+          </span>
+          <span style="display: inline-block; width: 30px;"></span>
+          <span style="display: inline-block; width: 150px; text-align: center; border: 1px solid #ddd; padding: 10px; border-radius: 5px; background-color: #f5f5f5;">
+            <strong>J key</strong><br>for RIGHT option
+          </span>
+        </div>
+      </div>
+
+      <p>You'll begin with training trials to familiarize yourself with the task.</p>
+      <p>In the training phase, you will learn which delays are considered "short" and which are considered "long".</p>
+    </div>
+   
+    <p>Press any key to continue.</p>
+  `,
+    post_trial_gap: 500
+};
+
+/* main experiment start screen */
+const MainExperiment_StartScreen = {
+    type: jsPsychHtmlKeyboardResponse,
+    stimulus: `
+    <h2>Main Experiment Phase</h2>
+   
+    <p>Great job! You have completed the training phase.</p>
+   
+    <p>Now you will begin the main experiment, which is identical to the training phase.</p>
+   
+    <p>Try to use what you learned in the training phase to get as many points as you can.</p>
+   
+    <p>Press any key to begin the main experiment.</p>
+  `
+};
+
+const Debrief_at_End = {
+    type: jsPsychHtmlKeyboardResponse,
+    stimulus: function () {
+        var totalPoints = jsPsych.data.get().filter({ phase: 'response' }).select('trial_points').sum();
+        
+
+        return `
+        <h2>Experiment Complete</h2>
+        
+        <p>Thank you for participating in our temporal discrimination study!</p>
+        
+        <p>You earned a total of <strong>${totalPoints} points</strong> across all trials.</p>
+        
+        <p>In this experiment, you were asked to classify time intervals as either "short" or "long".
+        The boundary between short and long was set at 6 seconds - intervals shorter than 6 seconds
+        were considered "short" while intervals of 6 seconds or longer were considered "long".</p>
+        
+        <p>This study helps us understand how people perceive and categorize time intervals.</p>
+        
+        <p><strong>Press any key to close the experiment.</strong></p>`;
+    },
+    post_trial_gap: 1000
+}; // end of debrief screen
+
+const train_procedure = {
+    timeline: [iti_screen, clock_start_screen, choice_screen, selection_feedback, reward_feedback],
+    timeline_variables: train_stimuli,
+    randomize_order: true,
+    repetitions: 2
+};
+
+// made it longer after Morgan's suggestion (original = 4 repetitions)
+const MainBlock = {
+    timeline: [iti_screen, clock_start_screen, choice_screen, selection_feedback, reward_feedback],
+    timeline_variables: main_task_stimuli,
+    randomize_order: true,
+    repetitions: 6
+};
+// during main block total points shows 0 when showing the start cue but shows the actual total points when showing the stop cue
+
+// Add components to the timeline
+timeline.push(welcome_and_consent);
+timeline.push(demographics_combined);
+timeline.push(combined_instructions);
+timeline.push(train_procedure);
+timeline.push(MainExperiment_StartScreen);
+timeline.push(MainBlock);
+timeline.push(Debrief_at_End);
+
+// start the experiment
+jsPsych.run(timeline);
